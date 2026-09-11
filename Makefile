@@ -9,13 +9,13 @@ help:
 	@echo "build            Build the installable package"
 
 test:
-	PYTHONPATH=src python3 -m unittest discover -s tests -v
+	uv run --locked python -m unittest discover -s tests -v
 
 repository-check:
 	python3 scripts/check_repository.py
 
 check: repository-check test
-	python3 -m compileall -q src
+	uv run --locked python -m compileall -q src
 
 build:
-	python3 -m build
+	uv build

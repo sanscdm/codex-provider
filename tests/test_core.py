@@ -33,7 +33,10 @@ wire_api = "responses"
 name = "DeepSeek"
 base_url = "https://api.deepseek.com/"
 wire_api = "responses"
-env_key = "DEEPSEEK_API_KEY"
+
+[model_providers.deepseek.auth]
+command = "codex-provider"
+args = ["credential", "deepseek"]
 
 [mcp_servers.example]
 url = "https://example.invalid/mcp"

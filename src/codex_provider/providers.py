@@ -3,9 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import platform
 import re
-import subprocess
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
@@ -120,7 +118,10 @@ def render_deepseek_profile(model: str) -> str:
     )
 
 
-def configure_deepseek_provider(config_text: str) -> str:
+def configure_deepseek_provider(
+    config_text: str,
+    credential_command: str = "codex-provider",
+) -> str:
     parse_toml(config_text, "Codex configuration")
     document = tomlkit.parse(config_text)
     providers = document.get("model_providers")
@@ -134,7 +135,10 @@ def configure_deepseek_provider(config_text: str) -> str:
     deepseek.add("name", "DeepSeek")
     deepseek.add("base_url", "https://api.deepseek.com/")
     deepseek.add("wire_api", "responses")
-    deepseek.add("env_key", DEEPSEEK_ENVIRONMENT_KEY)
+    authentication = tomlkit.table()
+    authentication.add("command", credential_command)
+    authentication.add("args", ["credential", DEEPSEEK_PROFILE_NAME])
+    deepseek.add("auth", authentication)
     providers[DEEPSEEK_PROFILE_NAME] = deepseek
 
     candidate = tomlkit.dumps(document)
@@ -158,54 +162,13 @@ def read_environment(path: Path) -> str:
     return validate_deepseek_api_key(lines[0][len(prefix) :])
 
 
-def publish_environment(api_key: str, system_name: str | None = None) -> None:
-    value = validate_deepseek_api_key(api_key)
-    os.environ[DEEPSEEK_ENVIRONMENT_KEY] = value
-    if (system_name or platform.system()) != "Darwin":
-        return
-    result = subprocess.run(
-        ["launchctl", "setenv", DEEPSEEK_ENVIRONMENT_KEY, value],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise ProviderError("Could not publish the DeepSeek environment to macOS")
-
-
-def clear_deepseek_environment(system_name: str | None = None) -> None:
-    os.environ.pop(DEEPSEEK_ENVIRONMENT_KEY, None)
-    if (system_name or platform.system()) != "Darwin":
-        return
-    result = subprocess.run(
-        ["launchctl", "unsetenv", DEEPSEEK_ENVIRONMENT_KEY],
-        check=False,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise ProviderError("Could not clear the DeepSeek environment from macOS")
-
-
-def activate_stored_environment(paths: Paths, provider: str) -> bool:
-    environment = paths.provider_environment(provider)
-    if not environment.exists():
-        return False
-    publish_environment(read_environment(environment))
-    return True
-
-
-def clear_environment_for_profile(provider: str) -> None:
-    if provider != DEEPSEEK_PROFILE_NAME:
-        clear_deepseek_environment()
-
-
 def install_deepseek(
     paths: Paths,
     api_key: str,
     model: str = "deepseek-flash",
     *,
     setup_script: bytes | None = None,
+    credential_command: str = "codex-provider",
 ) -> ProviderInstallResult:
     value = validate_deepseek_api_key(api_key)
     source = setup_script if setup_script is not None else download_official_setup_script()
@@ -222,7 +185,7 @@ def install_deepseek(
             atomic_write(paths.config, "")
         ensure_initialized(paths)
         config_text = paths.config.read_text(encoding="utf-8")
-        candidate = configure_deepseek_provider(config_text)
+        candidate = configure_deepseek_provider(config_text, credential_command)
         atomic_write(catalog, catalog_text)
         atomic_write(profile, profile_text)
         atomic_write(environment, environment_text)

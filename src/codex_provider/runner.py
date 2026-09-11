@@ -1,22 +1,38 @@
 from __future__ import annotations
 
-import os
 import shutil
 import subprocess
 from pathlib import Path
 from typing import Sequence
 
-from .core import Paths, ProviderError, profile_path
-from .providers import DEEPSEEK_ENVIRONMENT_KEY, read_environment
+from .core import (
+    Paths,
+    ProviderError,
+    format_value,
+    load_toml,
+    profile_path,
+    validate_profile_for_desktop,
+)
 
 
-def codex_environment(paths: Paths, profile: str) -> dict[str, str]:
-    environment = os.environ.copy()
-    if profile == "deepseek":
-        environment[DEEPSEEK_ENVIRONMENT_KEY] = read_environment(
-            paths.provider_environment(profile)
-        )
-    return environment
+def profile_overrides(paths: Paths, profile: str) -> list[str]:
+    profile_file = profile_path(paths, profile)
+    _, profile_data = load_toml(profile_file)
+    _, base_data = load_toml(paths.config)
+    selection = validate_profile_for_desktop(profile, profile_data, base_data)
+
+    catalog = selection.get("model_catalog_json")
+    if isinstance(catalog, str):
+        catalog_path = Path(catalog)
+        if not catalog_path.is_absolute():
+            selection["model_catalog_json"] = str(
+                (profile_file.parent / catalog_path).resolve()
+            )
+
+    overrides: list[str] = []
+    for key, value in selection.items():
+        overrides.extend(["-c", f"{key}={format_value(value)}"])
+    return overrides
 
 
 def run_codex(
@@ -40,8 +56,7 @@ def run_codex(
     if command_arguments[:1] == ["--"]:
         command_arguments.pop(0)
     result = subprocess.run(
-        [str(codex), "--profile", profile, *command_arguments],
-        env=codex_environment(paths, profile),
+        [str(codex), *profile_overrides(paths, profile), *command_arguments],
         check=False,
     )
     return result.returncode

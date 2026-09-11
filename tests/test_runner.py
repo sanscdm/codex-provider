@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -19,8 +18,17 @@ class RunnerTestCase(unittest.TestCase):
         root = Path(self.temporary.name)
         self.paths = Paths(root / ".codex", root / ".codex-provider")
         self.paths.codex_home.mkdir()
+        self.paths.config.write_text(
+            '[model_providers.deepseek]\nbase_url = "https://api.deepseek.com/"\n',
+            encoding="utf-8",
+        )
         (self.paths.codex_home / "deepseek.config.toml").write_text(
-            'model_provider = "deepseek"\n', encoding="utf-8"
+            'model = "deepseek-flash"\n'
+            'model_provider = "deepseek"\n'
+            'model_catalog_json = "./deepseek.models.json"\n'
+            '\n[mcp_servers.linear.tools.save_comment]\n'
+            'approval_mode = "approve"\n',
+            encoding="utf-8",
         )
         environment = self.paths.provider_environment("deepseek")
         environment.parent.mkdir(parents=True)
@@ -31,11 +39,9 @@ class RunnerTestCase(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
-    def test_run_loads_stored_key_for_codex_child_only(self) -> None:
+    def test_run_uses_selection_overrides_and_ignores_saved_profile_permissions(self) -> None:
         completed = type("Completed", (), {"returncode": 0})()
-        with patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}), patch(
-            "codex_provider.runner.subprocess.run", return_value=completed
-        ) as run:
+        with patch("codex_provider.runner.subprocess.run", return_value=completed) as run:
             exit_code = run_codex(
                 self.paths,
                 "deepseek",
@@ -43,14 +49,21 @@ class RunnerTestCase(unittest.TestCase):
                 executable=Path("/opt/codex/bin/codex"),
             )
 
-            self.assertEqual(os.environ["DEEPSEEK_API_KEY"], "")
-
         self.assertEqual(exit_code, 0)
         self.assertEqual(
             run.call_args.args[0],
-            ["/opt/codex/bin/codex", "--profile", "deepseek", "--ephemeral"],
+            [
+                "/opt/codex/bin/codex",
+                "-c",
+                'model="deepseek-flash"',
+                "-c",
+                'model_provider="deepseek"',
+                "-c",
+                f'model_catalog_json="{(self.paths.codex_home / "deepseek.models.json").resolve()}"',
+                "--ephemeral",
+            ],
         )
-        self.assertEqual(run.call_args.kwargs["env"]["DEEPSEEK_API_KEY"], TEST_KEY)
+        self.assertNotIn("--profile", run.call_args.args[0])
 
     def test_missing_codex_cli_has_actionable_error(self) -> None:
         with patch("codex_provider.runner.shutil.which", return_value=None):

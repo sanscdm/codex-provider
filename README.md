@@ -43,7 +43,9 @@ Install DeepSeek end to end:
 codex-provider install deepseek
 ```
 
-The command uses `DEEPSEEK_API_KEY` when it is already present. Otherwise, it asks for the API key without echoing it. It downloads the pinned official DeepSeek catalog, installs the native profile, adds the provider definition, captures the original selection, and stores the key only in `~/.codex-provider/providers/deepseek.env` with mode `0600`. This is a plaintext local environment file. Do not share or commit it.
+The command uses `DEEPSEEK_API_KEY` when it is already present, then checks the existing local provider environment. Otherwise, it asks for the API key without echoing it. It downloads the pinned official DeepSeek catalog, installs the selection profile, adds the provider definition, captures the original selection, and stores the key only in `~/.codex-provider/providers/deepseek.env` with mode `0600`. This is a plaintext local environment file. Do not share or commit it.
+
+The provider uses Codex command-backed authentication. Codex asks `codex-provider` for the stored credential when it starts a DeepSeek request. The key does not need to be exported into the terminal or macOS login environment.
 
 Apply it to new desktop tasks:
 
@@ -51,32 +53,30 @@ Apply it to new desktop tasks:
 codex-provider use deepseek
 ```
 
-Fully quit and reopen Codex. For the native CLI, load the same local environment first:
+Fully quit and reopen Codex. For the CLI, run:
 
 ```bash
 codex-provider run deepseek
 ```
 
-`run` loads the stored provider environment only for the new Codex process. It does not
-export the API key into the current shell. Pass Codex arguments after `--`, for example:
+`run` reads only the selection values from the profile and passes them as temporary Codex configuration overrides. It does not select the profile file as Codex's writable permission layer. Pass Codex arguments after `--`, for example:
 
 ```bash
 codex-provider run deepseek -- --ephemeral
 ```
 
-You can still use the native command directly after loading the environment:
+After `use deepseek`, the base configuration selects DeepSeek. Command-backed authentication lets the native CLI resume without sourcing an environment file:
 
 ```bash
-source ~/.codex-provider/providers/deepseek.env
-codex --profile deepseek
+codex resume
 ```
 
-On macOS, `use deepseek` publishes the variable to the current login session so the restarted desktop app can read it. Switching to another profile, restoring the original selection, or using defaults clears it from the login session.
+Do not run `codex --profile deepseek`. Codex can save tool approval changes into the selected profile file. A provider selection profile must stay selection-only. Use `codex-provider run deepseek` or apply it with `codex-provider use deepseek` and then run `codex` normally.
 
 For a provider that you configure manually:
 
 1. Put custom provider definitions in `~/.codex/config.toml`.
-2. Put each native profile in `~/.codex/<name>.config.toml`.
+2. Put each selection profile in `~/.codex/<name>.config.toml`.
 3. Capture your current provider selection once:
 
 ```bash
@@ -118,20 +118,20 @@ Install the small chooser app:
 codex-provider desktop-install
 ```
 
-Open `Codex Provider Switcher` from `~/Applications`. Choose a native profile, the original selection, Codex defaults, or rollback.
+Open `Codex Provider Switcher` from `~/Applications`. Choose a selection profile, the original selection, Codex defaults, or rollback.
 
 The app does not restart Codex because that could interrupt an active task. Fully quit and reopen Codex after a switch.
 
-## Native Codex profiles
+## Codex selection profiles
 
-The native CLI path does not change `~/.codex/config.toml`:
+The temporary CLI path does not change `~/.codex/config.toml`:
 
 ```bash
-codex --profile deepseek
-codex --profile openai --model gpt-6-astra -c 'model_reasoning_effort="high"'
+codex-provider run deepseek
+codex --model gpt-6-astra -c 'model_reasoning_effort="high"'
 ```
 
-The desktop app does not currently select a native profile at launch. `codex-provider use <name>` copies only the profile's supported top-level selection values into a marked block in the base configuration.
+The desktop app does not currently select a profile at launch. `codex-provider use <name>` copies only the profile's supported top-level selection values into a marked block in the base configuration.
 
 Provider definitions remain in the base config. This lets the tool switch selections without duplicating authentication settings.
 
@@ -145,17 +145,17 @@ Choose DeepSeek V4 Pro during installation:
 codex-provider install deepseek --model deepseek-v4-pro
 ```
 
-For manual setup, add the provider definition from [`examples/base-config.toml`](examples/base-config.toml) to `~/.codex/config.toml`. Set `DEEPSEEK_API_KEY` only in your shell or local Codex environment. Never put it in a profile or this repository.
+The installer is the supported setup path because it writes the local credential file and records the installed `codex-provider` command path. The files in [`examples`](examples) are references for review; they do not contain credentials.
 
-Copy the example profile:
+The installed selection profile has this shape:
 
 ```bash
-cp examples/profiles/deepseek.config.toml ~/.codex/deepseek.config.toml
+cat examples/profiles/deepseek.config.toml
 ```
 
 The example uses `./deepseek.models.json`. Codex resolves this relative path from the user configuration directory. The catalog is generated on the local machine and is not committed.
 
-Native CLI:
+CLI:
 
 ```bash
 codex-provider run deepseek

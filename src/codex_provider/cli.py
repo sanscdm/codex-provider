@@ -21,17 +21,19 @@ from .core import (
 )
 from .desktop import current_executable, default_app_path, install_desktop_app
 from .providers import (
-    activate_stored_environment,
-    clear_environment_for_profile,
     install_deepseek,
+    read_environment,
 )
 from .runner import run_codex
 
 
-def deepseek_api_key() -> str:
+def deepseek_api_key(paths: Paths) -> str:
     existing = os.environ.get("DEEPSEEK_API_KEY")
     if existing:
         return existing
+    stored = paths.provider_environment("deepseek")
+    if stored.is_file():
+        return read_environment(stored)
     try:
         return getpass.getpass("DeepSeek API key: ")
     except EOFError as error:
@@ -56,7 +58,7 @@ def parser() -> argparse.ArgumentParser:
     subcommands.add_parser("names", help=argparse.SUPPRESS)
     subcommands.add_parser("status", help="show the current desktop selection")
 
-    use_parser = subcommands.add_parser("use", help="apply a native profile to desktop tasks")
+    use_parser = subcommands.add_parser("use", help="apply a selection profile to desktop tasks")
     use_parser.add_argument("profile")
 
     install_parser = subcommands.add_parser("install", help="install a provider configuration")
@@ -68,10 +70,13 @@ def parser() -> argparse.ArgumentParser:
     )
 
     run_parser = subcommands.add_parser(
-        "run", help="start Codex with a native profile and its stored environment"
+        "run", help="start Codex with temporary overrides from a selection profile"
     )
     run_parser.add_argument("profile")
     run_parser.add_argument("codex_args", nargs=argparse.REMAINDER)
+
+    credential_parser = subcommands.add_parser("credential", help=argparse.SUPPRESS)
+    credential_parser.add_argument("provider", choices=["deepseek"])
 
     subcommands.add_parser("restore", help="restore the first captured selection")
     subcommands.add_parser("default", help="remove overrides and use Codex defaults")
@@ -103,40 +108,35 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "status":
             print(json.dumps(status(paths), indent=2, sort_keys=True))
         elif args.command == "use":
-            activate_stored_environment(paths, args.profile)
             snapshot = use_profile(paths, args.profile)
-            clear_environment_for_profile(args.profile)
             print(f"Desktop provider selection: {args.profile}")
             print(f"Rollback snapshot: {snapshot}")
         elif args.command == "install":
-            result = install_deepseek(paths, deepseek_api_key(), args.model)
+            result = install_deepseek(
+                paths,
+                deepseek_api_key(paths),
+                args.model,
+                credential_command=str(current_executable()),
+            )
             print(f"Installed DeepSeek profile: {result.profile}")
             print(f"Installed DeepSeek catalog: {result.catalog}")
             print(f"Stored local environment: {result.environment}")
             print("Desktop: codex-provider use deepseek")
-            print("Native CLI: codex-provider run deepseek")
+            print("CLI: codex-provider run deepseek")
         elif args.command == "run":
             return run_codex(paths, args.profile, args.codex_args)
+        elif args.command == "credential":
+            print(read_environment(paths.provider_environment(args.provider)))
         elif args.command == "restore":
             snapshot = restore_original(paths)
-            restored_provider = status(paths)["selection"].get("model_provider", "openai")
-            if restored_provider == "deepseek":
-                activate_stored_environment(paths, "deepseek")
-            else:
-                clear_environment_for_profile(str(restored_provider))
             print("Restored the original provider selection.")
             print(f"Rollback snapshot: {snapshot}")
         elif args.command == "default":
             snapshot = use_defaults(paths)
-            clear_environment_for_profile("openai")
             print("Removed provider overrides. Codex defaults will apply.")
             print(f"Rollback snapshot: {snapshot}")
         elif args.command == "rollback":
             snapshot, provider = rollback(paths)
-            if provider == "deepseek":
-                activate_stored_environment(paths, "deepseek")
-            else:
-                clear_environment_for_profile(provider or "openai")
             label = provider or "Codex defaults"
             print(f"Rolled back to: {label}")
             print(f"Applied snapshot: {snapshot}")

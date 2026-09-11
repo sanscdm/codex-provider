@@ -1,20 +1,17 @@
 from __future__ import annotations
 
 import json
-import os
 import stat
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 from codex_provider.core import Paths, ProviderError
 from codex_provider.providers import (
     CATALOG_END,
     CATALOG_START,
-    activate_stored_environment,
-    clear_deepseek_environment,
     install_deepseek,
+    read_environment,
     validate_deepseek_api_key,
     verify_official_setup_script,
 )
@@ -49,6 +46,7 @@ class DeepSeekInstallerTestCase(unittest.TestCase):
             self.paths,
             TEST_KEY,
             setup_script=SETUP_SCRIPT,
+            credential_command="/opt/bin/codex-provider",
         )
 
         config = self.paths.config.read_text(encoding="utf-8")
@@ -58,7 +56,9 @@ class DeepSeekInstallerTestCase(unittest.TestCase):
         environment = result.environment.read_text(encoding="utf-8")
 
         self.assertIn("[model_providers.deepseek]", config)
-        self.assertIn('env_key = "DEEPSEEK_API_KEY"', config)
+        self.assertIn("[model_providers.deepseek.auth]", config)
+        self.assertIn('command = "/opt/bin/codex-provider"', config)
+        self.assertIn('args = ["credential", "deepseek"]', config)
         self.assertIn("[mcp_servers.example]", config)
         self.assertIn('model = "deepseek-flash"', profile)
         self.assertEqual({item["slug"] for item in json.loads(catalog)["models"]}, {
@@ -86,13 +86,14 @@ class DeepSeekInstallerTestCase(unittest.TestCase):
             self.paths,
             TEST_KEY,
             setup_script=SETUP_SCRIPT,
+            credential_command="/opt/bin/codex-provider",
         )
 
         config = self.paths.config.read_text(encoding="utf-8")
         self.assertNotIn(token_key, config)
         self.assertNotIn("old-value", config)
-        self.assertNotIn("[model_providers.deepseek.auth]", config)
-        self.assertIn('env_key = "DEEPSEEK_API_KEY"', config)
+        self.assertNotIn("env_key", config)
+        self.assertIn("[model_providers.deepseek.auth]", config)
 
     def test_invalid_key_stops_before_any_write(self) -> None:
         before = self.paths.config.read_text(encoding="utf-8")
@@ -116,37 +117,18 @@ class DeepSeekInstallerTestCase(unittest.TestCase):
             )
         self.assertFalse(self.paths.data_home.exists())
 
-    def test_activation_reads_env_and_hides_launchctl_failure_details(self) -> None:
+    def test_stored_environment_can_supply_command_backed_auth(self) -> None:
         environment = self.paths.provider_environment("deepseek")
         environment.parent.mkdir(parents=True)
         environment.write_text(
             f"export DEEPSEEK_API_KEY={TEST_KEY}\n",
             encoding="utf-8",
         )
-        completed = type("Completed", (), {"returncode": 1})()
-        with patch("codex_provider.providers.platform.system", return_value="Darwin"), patch(
-            "codex_provider.providers.subprocess.run", return_value=completed
-        ) as run:
-            with self.assertRaisesRegex(ProviderError, "Could not publish") as captured:
-                activate_stored_environment(self.paths, "deepseek")
-        self.assertNotIn(TEST_KEY, str(captured.exception))
-        self.assertEqual(run.call_args.args[0][-1], TEST_KEY)
+        self.assertEqual(read_environment(environment), TEST_KEY)
 
     def test_key_validation_rejects_shell_syntax(self) -> None:
         with self.assertRaises(ProviderError):
             validate_deepseek_api_key("sk-value;command")
-
-    def test_clear_removes_login_session_environment(self) -> None:
-        completed = type("Completed", (), {"returncode": 0})()
-        with patch.dict("os.environ", {"DEEPSEEK_API_KEY": TEST_KEY}), patch(
-            "codex_provider.providers.subprocess.run", return_value=completed
-        ) as run:
-            clear_deepseek_environment(system_name="Darwin")
-            self.assertNotIn("DEEPSEEK_API_KEY", os.environ)
-        self.assertEqual(
-            run.call_args.args[0],
-            ["launchctl", "unsetenv", "DEEPSEEK_API_KEY"],
-        )
 
     def test_changed_official_script_is_rejected(self) -> None:
         with self.assertRaisesRegex(ProviderError, "changed its setup script"):
