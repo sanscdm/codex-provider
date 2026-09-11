@@ -4,7 +4,7 @@ import io
 import os
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import redirect_stderr, redirect_stdout
 from pathlib import Path
 from unittest.mock import patch
 
@@ -121,6 +121,125 @@ class CliTestCase(unittest.TestCase):
         self.assertNotIn(key, output.getvalue())
         self.assertIn("Desktop: codex-provider use openrouter", output.getvalue())
         self.assertIn("CLI: codex-provider run openrouter", output.getvalue())
+
+    def test_bedrock_install_uses_aws_options_without_a_secret(self) -> None:
+        result = ProviderInstallResult(
+            Path("bedrock.config.toml"),
+            None,
+            None,
+        )
+        output = io.StringIO()
+        with patch(
+            "codex_provider.cli.install_bedrock", return_value=result
+        ) as install, redirect_stdout(output):
+            exit_code = main(
+                [
+                    "install",
+                    "bedrock",
+                    "--region",
+                    "us-east-2",
+                    "--aws-profile",
+                    "codex-bedrock",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(install.call_args.kwargs["region"], "us-east-2")
+        self.assertEqual(
+            install.call_args.kwargs["aws_profile"], "codex-bedrock"
+        )
+        self.assertIn("Authentication: AWS SDK credential chain", output.getvalue())
+        self.assertNotIn("Stored local environment", output.getvalue())
+
+    def test_foundry_install_defaults_to_entra_id(self) -> None:
+        result = ProviderInstallResult(
+            Path("foundry.config.toml"),
+            None,
+            None,
+        )
+        output = io.StringIO()
+        with patch(
+            "codex_provider.cli.shutil.which", return_value="/opt/homebrew/bin/az"
+        ), patch(
+            "codex_provider.cli.install_foundry", return_value=result
+        ) as install, redirect_stdout(output):
+            exit_code = main(
+                [
+                    "install",
+                    "foundry",
+                    "--endpoint",
+                    "https://acme.services.ai.azure.com/openai/v1",
+                    "--model",
+                    "coding-production",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(install.call_args.kwargs["auth_mode"], "entra")
+        self.assertEqual(
+            install.call_args.kwargs["azure_cli"], "/opt/homebrew/bin/az"
+        )
+        self.assertIn(
+            "Authentication: Microsoft Entra ID through Azure CLI",
+            output.getvalue(),
+        )
+
+    def test_foundry_api_key_uses_local_environment(self) -> None:
+        key = "0123456789abcdef0123456789abcdef"
+        result = ProviderInstallResult(
+            Path("foundry.config.toml"),
+            None,
+            Path("foundry.env"),
+        )
+        output = io.StringIO()
+        with patch.dict(os.environ, {"AZURE_OPENAI_API_KEY": key}), patch(
+            "codex_provider.cli.install_foundry", return_value=result
+        ) as install, redirect_stdout(output):
+            exit_code = main(
+                [
+                    "install",
+                    "foundry",
+                    "--endpoint",
+                    "https://acme.openai.azure.com/openai/v1",
+                    "--model",
+                    "coding-production",
+                    "--auth",
+                    "api-key",
+                ]
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(install.call_args.kwargs["auth_mode"], "api-key")
+        self.assertEqual(install.call_args.kwargs["api_key"], key)
+        self.assertNotIn(key, output.getvalue())
+        self.assertIn("Stored local environment: foundry.env", output.getvalue())
+
+    def test_foundry_requires_endpoint_and_model(self) -> None:
+        error = io.StringIO()
+        with redirect_stderr(error):
+            exit_code = main(["install", "foundry"])
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("requires --endpoint", error.getvalue())
+
+    def test_foundry_entra_requires_azure_cli(self) -> None:
+        error = io.StringIO()
+        with patch("codex_provider.cli.shutil.which", return_value=None), redirect_stderr(
+            error
+        ):
+            exit_code = main(
+                [
+                    "install",
+                    "foundry",
+                    "--endpoint",
+                    "https://acme.openai.azure.com/openai/v1",
+                    "--model",
+                    "coding-production",
+                ]
+            )
+
+        self.assertEqual(exit_code, 2)
+        self.assertIn("Azure CLI not found", error.getvalue())
 
 
 if __name__ == "__main__":

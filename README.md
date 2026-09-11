@@ -14,6 +14,11 @@ This is a small alpha release for macOS and Linux. The desktop launcher is macOS
 - Codex CLI
 - macOS for the optional desktop launcher
 
+Optional provider tools:
+
+- AWS CLI for Bedrock SSO login
+- Azure CLI for Microsoft Foundry Entra ID authentication
+
 ## Install from a checkout
 
 With `pipx`:
@@ -194,21 +199,59 @@ After a desktop switch, fully quit and reopen Codex. Existing tasks keep the pro
 
 ## Example: Amazon Bedrock
 
-Use AWS SSO or another standard AWS credential source. Add the Bedrock AWS settings from [`examples/base-config.toml`](examples/base-config.toml) to the base Codex config.
+Install the built-in Codex Bedrock provider with an AWS profile and Region:
 
 ```bash
+codex-provider install bedrock \
+  --model openai.gpt-5.6-sol \
+  --region us-east-2 \
+  --aws-profile codex-bedrock
 aws sso login --profile codex-bedrock
-cp examples/profiles/bedrock.config.toml ~/.codex/bedrock.config.toml
-codex --profile bedrock
-```
-
-For desktop use:
-
-```bash
 codex-provider use bedrock
 ```
 
-The model and Region must be enabled for the company's AWS account. See the [official Codex Bedrock guide](https://learn.chatgpt.com/docs/amazon-bedrock).
+Fully quit and reopen Codex. The installer does not copy AWS credentials. Codex uses its built-in `amazon-bedrock` provider and the standard AWS credential chain.
+
+For a temporary CLI session without changing the desktop selection:
+
+```bash
+codex-provider run bedrock
+```
+
+Omit `--aws-profile` to use the default AWS credential chain. The model and Region must be enabled for the company's AWS account. See the [official Codex Bedrock guide](https://learn.chatgpt.com/docs/amazon-bedrock).
+
+## Example: Microsoft Foundry
+
+The supported path is a Microsoft Foundry deployment with an OpenAI-compatible Responses endpoint. The `--model` value is the deployment name.
+
+Use Microsoft Entra ID by default:
+
+```bash
+az login
+codex-provider install foundry \
+  --endpoint https://YOUR_RESOURCE.services.ai.azure.com/openai/v1 \
+  --model coding-production
+codex-provider use foundry
+```
+
+The installer records the resolved Azure CLI path. Codex asks Azure CLI for a short-lived token when needed. No Azure token is stored by `codex-provider`.
+
+API-key authentication is also available:
+
+```bash
+codex-provider install foundry \
+  --endpoint https://YOUR_RESOURCE.openai.azure.com/openai/v1 \
+  --model coding-production \
+  --auth api-key
+```
+
+The command reads `AZURE_OPENAI_API_KEY` when set. Otherwise, it asks without echoing the value. It stores the key only in `~/.codex-provider/providers/foundry.env` with mode `0600`.
+
+For a temporary CLI session:
+
+```bash
+codex-provider run foundry
+```
 
 ## Recovery model
 
@@ -243,6 +286,8 @@ This reads only the managed selection values from that file. It does not copy it
 codex-provider init [--original-config FILE]
 codex-provider install deepseek [--model MODEL]
 codex-provider install openrouter [--model MODEL]
+codex-provider install bedrock [--model MODEL] [--region REGION] [--aws-profile PROFILE]
+codex-provider install foundry --endpoint URL --model DEPLOYMENT [--auth entra|api-key]
 codex-provider run PROFILE [-- CODEX_ARGS...]
 codex-provider list
 codex-provider status
@@ -263,6 +308,9 @@ codex-provider desktop-install
 - Invalid TOML stops the switch before the Codex config changes.
 - No credential, token, API key, or complete Codex configuration is copied.
 - Provider keys are written only to local mode-`0600` environment files.
+- Bedrock uses the built-in AWS credential chain. The installer does not copy AWS credentials.
+- Foundry endpoints must use HTTPS and an official Azure OpenAI or Microsoft Foundry hostname.
+- Foundry Entra ID authentication stores no token. Azure CLI owns login and refresh.
 - DeepSeek catalog downloads use HTTPS, an allowed host, a size limit, a pinned checksum, strict JSON parsing, and an exact model allowlist.
 
 ## Development

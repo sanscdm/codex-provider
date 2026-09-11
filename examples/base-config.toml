@@ -22,3 +22,12 @@ args = ["credential", "openrouter"]
 [model_providers.amazon-bedrock.aws]
 profile = "codex-bedrock"
 region = "us-east-2"
+
+[model_providers.azure-foundry]
+name = "Microsoft Foundry"
+base_url = "https://YOUR_RESOURCE.services.ai.azure.com/openai/v1"
+wire_api = "responses"
+
+[model_providers.azure-foundry.auth]
+command = "az"
+args = ["account", "get-access-token", "--resource", "https://ai.azure.com", "--query", "accessToken", "--output", "tsv"]

@@ -1,0 +1,3 @@
+model = "coding-production"
+model_provider = "azure-foundry"
+web_search = "disabled"

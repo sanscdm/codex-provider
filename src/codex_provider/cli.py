@@ -4,6 +4,7 @@ import argparse
 import getpass
 import json
 import os
+import shutil
 import sys
 from pathlib import Path
 
@@ -21,10 +22,15 @@ from .core import (
 )
 from .desktop import current_executable, default_app_path, install_desktop_app
 from .providers import (
+    BEDROCK_DEFAULT_MODEL,
+    BEDROCK_PROFILE_NAME,
     DEEPSEEK_PROFILE_NAME,
+    FOUNDRY_PROFILE_NAME,
     OPENROUTER_DEFAULT_MODEL,
     OPENROUTER_PROFILE_NAME,
+    install_bedrock,
     install_deepseek,
+    install_foundry,
     install_openrouter,
     provider_display_name,
     provider_environment_key,
@@ -49,6 +55,13 @@ def provider_api_key(paths: Paths, provider: str) -> str:
         ) from error
 
 
+def reject_cloud_options(args: argparse.Namespace) -> None:
+    if args.region or args.aws_profile or args.endpoint or args.auth:
+        raise ProviderError(
+            "--region, --aws-profile, --endpoint, and --auth apply only to Bedrock or Foundry"
+        )
+
+
 def parser() -> argparse.ArgumentParser:
     command_parser = argparse.ArgumentParser(
         prog="codex-provider",
@@ -69,8 +82,14 @@ def parser() -> argparse.ArgumentParser:
     use_parser.add_argument("profile")
 
     install_parser = subcommands.add_parser("install", help="install a provider configuration")
-    install_parser.add_argument("provider", choices=["deepseek", "openrouter"])
+    install_parser.add_argument(
+        "provider", choices=["deepseek", "openrouter", "bedrock", "foundry"]
+    )
     install_parser.add_argument("--model")
+    install_parser.add_argument("--region")
+    install_parser.add_argument("--aws-profile")
+    install_parser.add_argument("--endpoint")
+    install_parser.add_argument("--auth", choices=["entra", "api-key"])
 
     run_parser = subcommands.add_parser(
         "run", help="start Codex with temporary overrides from a selection profile"
@@ -79,7 +98,9 @@ def parser() -> argparse.ArgumentParser:
     run_parser.add_argument("codex_args", nargs=argparse.REMAINDER)
 
     credential_parser = subcommands.add_parser("credential", help=argparse.SUPPRESS)
-    credential_parser.add_argument("provider", choices=["deepseek", "openrouter"])
+    credential_parser.add_argument(
+        "provider", choices=["deepseek", "openrouter", "foundry"]
+    )
 
     subcommands.add_parser("restore", help="restore the first captured selection")
     subcommands.add_parser("default", help="remove overrides and use Codex defaults")
@@ -115,20 +136,65 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Desktop provider selection: {args.profile}")
             print(f"Rollback snapshot: {snapshot}")
         elif args.command == "install":
-            credential_command = str(current_executable())
             if args.provider == DEEPSEEK_PROFILE_NAME:
+                reject_cloud_options(args)
                 result = install_deepseek(
                     paths,
                     provider_api_key(paths, args.provider),
                     args.model or "deepseek-flash",
-                    credential_command=credential_command,
+                    credential_command=str(current_executable()),
                 )
             elif args.provider == OPENROUTER_PROFILE_NAME:
+                reject_cloud_options(args)
                 result = install_openrouter(
                     paths,
                     provider_api_key(paths, args.provider),
                     args.model or OPENROUTER_DEFAULT_MODEL,
+                    credential_command=str(current_executable()),
+                )
+            elif args.provider == BEDROCK_PROFILE_NAME:
+                if args.endpoint or args.auth:
+                    raise ProviderError(
+                        "--endpoint and --auth apply only to Microsoft Foundry"
+                    )
+                result = install_bedrock(
+                    paths,
+                    args.model or BEDROCK_DEFAULT_MODEL,
+                    aws_profile=args.aws_profile,
+                    region=args.region,
+                )
+            elif args.provider == FOUNDRY_PROFILE_NAME:
+                if args.region or args.aws_profile:
+                    raise ProviderError(
+                        "--region and --aws-profile apply only to Amazon Bedrock"
+                    )
+                if not args.endpoint:
+                    raise ProviderError("Microsoft Foundry requires --endpoint")
+                if not args.model:
+                    raise ProviderError(
+                        "Microsoft Foundry requires --model with the deployment name"
+                    )
+                auth_mode = args.auth or "entra"
+                azure_cli = None
+                api_key = None
+                credential_command = None
+                if auth_mode == "entra":
+                    azure_cli = shutil.which("az")
+                    if azure_cli is None:
+                        raise ProviderError(
+                            "Azure CLI not found. Install it, run az login, and try again."
+                        )
+                else:
+                    api_key = provider_api_key(paths, args.provider)
+                    credential_command = str(current_executable())
+                result = install_foundry(
+                    paths,
+                    args.endpoint,
+                    args.model,
+                    auth_mode=auth_mode,
+                    api_key=api_key,
                     credential_command=credential_command,
+                    azure_cli=azure_cli,
                 )
             else:  # pragma: no cover - argparse enforces the provider set
                 raise ProviderError(f"Unsupported provider: {args.provider}")
@@ -136,7 +202,12 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Installed {display_name} profile: {result.profile}")
             if result.catalog is not None:
                 print(f"Installed {display_name} catalog: {result.catalog}")
-            print(f"Stored local environment: {result.environment}")
+            if result.environment is not None:
+                print(f"Stored local environment: {result.environment}")
+            elif args.provider == BEDROCK_PROFILE_NAME:
+                print("Authentication: AWS SDK credential chain")
+            elif args.provider == FOUNDRY_PROFILE_NAME:
+                print("Authentication: Microsoft Entra ID through Azure CLI")
             print(f"Desktop: codex-provider use {args.provider}")
             print(f"CLI: codex-provider run {args.provider}")
         elif args.command == "run":
