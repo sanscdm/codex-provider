@@ -25,6 +25,7 @@ from .providers import (
     clear_environment_for_profile,
     install_deepseek,
 )
+from .runner import run_codex
 
 
 def deepseek_api_key() -> str:
@@ -66,6 +67,12 @@ def parser() -> argparse.ArgumentParser:
         default="deepseek-flash",
     )
 
+    run_parser = subcommands.add_parser(
+        "run", help="start Codex with a native profile and its stored environment"
+    )
+    run_parser.add_argument("profile")
+    run_parser.add_argument("codex_args", nargs=argparse.REMAINDER)
+
     subcommands.add_parser("restore", help="restore the first captured selection")
     subcommands.add_parser("default", help="remove overrides and use Codex defaults")
     subcommands.add_parser("rollback", help="restore the selection before the last switch")
@@ -106,8 +113,10 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Installed DeepSeek profile: {result.profile}")
             print(f"Installed DeepSeek catalog: {result.catalog}")
             print(f"Stored local environment: {result.environment}")
-            print("Next: codex-provider use deepseek")
-            print(f"Native CLI shell: source {result.environment}")
+            print("Desktop: codex-provider use deepseek")
+            print("Native CLI: codex-provider run deepseek")
+        elif args.command == "run":
+            return run_codex(paths, args.profile, args.codex_args)
         elif args.command == "restore":
             snapshot = restore_original(paths)
             restored_provider = status(paths)["selection"].get("model_provider", "openai")

@@ -32,6 +32,7 @@ Upgrade after pulling changes:
 
 ```bash
 pipx install . --force
+# Or: uv tool install --force .
 ```
 
 ## Quick start
@@ -51,6 +52,19 @@ codex-provider use deepseek
 ```
 
 Fully quit and reopen Codex. For the native CLI, load the same local environment first:
+
+```bash
+codex-provider run deepseek
+```
+
+`run` loads the stored provider environment only for the new Codex process. It does not
+export the API key into the current shell. Pass Codex arguments after `--`, for example:
+
+```bash
+codex-provider run deepseek -- --ephemeral
+```
+
+You can still use the native command directly after loading the environment:
 
 ```bash
 source ~/.codex-provider/providers/deepseek.env
@@ -144,7 +158,7 @@ The example uses `./deepseek.models.json`. Codex resolves this relative path fro
 Native CLI:
 
 ```bash
-codex --profile deepseek
+codex-provider run deepseek
 ```
 
 Desktop selection:
@@ -203,6 +217,7 @@ This reads only the managed selection values from that file. It does not copy it
 ```text
 codex-provider init [--original-config FILE]
 codex-provider install deepseek [--model MODEL]
+codex-provider run PROFILE [-- CODEX_ARGS...]
 codex-provider list
 codex-provider status
 codex-provider use PROFILE

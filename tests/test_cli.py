@@ -34,7 +34,17 @@ class CliTestCase(unittest.TestCase):
         prompt.assert_called_once_with("DeepSeek API key: ")
         self.assertEqual(install.call_args.args[1], TEST_KEY)
         self.assertNotIn(TEST_KEY, output.getvalue())
-        self.assertIn("Next: codex-provider use deepseek", output.getvalue())
+        self.assertIn("Desktop: codex-provider use deepseek", output.getvalue())
+        self.assertIn("Native CLI: codex-provider run deepseek", output.getvalue())
+
+    def test_run_forwards_profile_and_codex_arguments(self) -> None:
+        with patch(
+            "codex_provider.cli.run_codex", return_value=7
+        ) as run:
+            exit_code = main(["run", "deepseek", "--", "--ephemeral"])
+
+        self.assertEqual(exit_code, 7)
+        self.assertEqual(run.call_args.args[1:], ("deepseek", ["--ephemeral"]))
 
     def test_noninteractive_install_has_actionable_error(self) -> None:
         with patch.dict(os.environ, {"DEEPSEEK_API_KEY": ""}), patch(
