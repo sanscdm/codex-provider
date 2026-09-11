@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
+from typing import Callable, Mapping
 from urllib.parse import urlparse
 
 import tomlkit
@@ -30,16 +29,36 @@ DEEPSEEK_MODELS = frozenset({"deepseek-flash", "deepseek-v4-pro"})
 DEEPSEEK_ENVIRONMENT_KEY = "DEEPSEEK_API_KEY"
 DEEPSEEK_CATALOG_NAME = "deepseek.models.json"
 DEEPSEEK_PROFILE_NAME = "deepseek"
+OPENROUTER_ENVIRONMENT_KEY = "OPENROUTER_API_KEY"
+OPENROUTER_PROFILE_NAME = "openrouter"
+OPENROUTER_DEFAULT_MODEL = "~openai/gpt-latest"
 MAX_SETUP_BYTES = 2_000_000
 API_KEY = re.compile(r"^sk-[A-Za-z0-9._-]{8,}$")
+OPENROUTER_API_KEY = re.compile(r"^sk-or-[A-Za-z0-9._-]{8,}$")
 CATALOG_START = b"cat > \"$1\" <<'CODEX_MODELS_JSON'\n"
 CATALOG_END = b"\nCODEX_MODELS_JSON\n"
+
+
+def provider_environment_key(provider: str) -> str:
+    if provider == DEEPSEEK_PROFILE_NAME:
+        return DEEPSEEK_ENVIRONMENT_KEY
+    if provider == OPENROUTER_PROFILE_NAME:
+        return OPENROUTER_ENVIRONMENT_KEY
+    raise ProviderError(f"Unsupported provider: {provider}")
+
+
+def provider_display_name(provider: str) -> str:
+    if provider == DEEPSEEK_PROFILE_NAME:
+        return "DeepSeek"
+    if provider == OPENROUTER_PROFILE_NAME:
+        return "OpenRouter"
+    raise ProviderError(f"Unsupported provider: {provider}")
 
 
 @dataclass(frozen=True)
 class ProviderInstallResult:
     profile: Path
-    catalog: Path
+    catalog: Path | None
     environment: Path
 
 
@@ -47,6 +66,29 @@ def validate_deepseek_api_key(api_key: str) -> str:
     value = api_key.strip()
     if not API_KEY.fullmatch(value):
         raise ProviderError("DeepSeek API key must start with sk- and contain no spaces")
+    return value
+
+
+def validate_openrouter_api_key(api_key: str) -> str:
+    value = api_key.strip()
+    if not OPENROUTER_API_KEY.fullmatch(value):
+        raise ProviderError(
+            "OpenRouter API key must start with sk-or- and contain no spaces"
+        )
+    return value
+
+
+def validate_openrouter_model(model: str) -> str:
+    value = model.strip()
+    if (
+        not value
+        or len(value) > 200
+        or any(
+            character.isspace() or not character.isprintable()
+            for character in value
+        )
+    ):
+        raise ProviderError("OpenRouter model must be a valid model slug without spaces")
     return value
 
 
@@ -118,9 +160,23 @@ def render_deepseek_profile(model: str) -> str:
     )
 
 
-def configure_deepseek_provider(
+def render_openrouter_profile(model: str) -> str:
+    value = validate_openrouter_model(model)
+    return (
+        f'model = {json.dumps(value)}\n'
+        'model_provider = "openrouter"\n'
+        'model_reasoning_effort = "high"\n'
+        'web_search = "disabled"\n'
+    )
+
+
+def configure_provider(
     config_text: str,
-    credential_command: str = "codex-provider",
+    *,
+    provider: str,
+    display_name: str,
+    base_url: str,
+    credential_command: str,
 ) -> str:
     parse_toml(config_text, "Codex configuration")
     document = tomlkit.parse(config_text)
@@ -131,35 +187,94 @@ def configure_deepseek_provider(
     if not isinstance(providers, Table):
         raise ProviderError("model_providers must be a TOML table")
 
-    deepseek = tomlkit.table()
-    deepseek.add("name", "DeepSeek")
-    deepseek.add("base_url", "https://api.deepseek.com/")
-    deepseek.add("wire_api", "responses")
+    definition = tomlkit.table()
+    definition.add("name", display_name)
+    definition.add("base_url", base_url)
+    definition.add("wire_api", "responses")
     authentication = tomlkit.table()
     authentication.add("command", credential_command)
-    authentication.add("args", ["credential", DEEPSEEK_PROFILE_NAME])
-    deepseek.add("auth", authentication)
-    providers[DEEPSEEK_PROFILE_NAME] = deepseek
+    authentication.add("args", ["credential", provider])
+    definition.add("auth", authentication)
+    providers[provider] = definition
 
     candidate = tomlkit.dumps(document)
     parse_toml(candidate, "generated Codex configuration")
     return candidate
 
 
-def render_environment(api_key: str) -> str:
-    return f"export {DEEPSEEK_ENVIRONMENT_KEY}={validate_deepseek_api_key(api_key)}\n"
+def configure_deepseek_provider(
+    config_text: str,
+    credential_command: str = "codex-provider",
+) -> str:
+    return configure_provider(
+        config_text,
+        provider=DEEPSEEK_PROFILE_NAME,
+        display_name="DeepSeek",
+        base_url="https://api.deepseek.com/",
+        credential_command=credential_command,
+    )
 
 
-def read_environment(path: Path) -> str:
+def configure_openrouter_provider(
+    config_text: str,
+    credential_command: str = "codex-provider",
+) -> str:
+    return configure_provider(
+        config_text,
+        provider=OPENROUTER_PROFILE_NAME,
+        display_name="OpenRouter",
+        base_url="https://openrouter.ai/api/v1",
+        credential_command=credential_command,
+    )
+
+
+def render_environment(environment_key: str, api_key: str) -> str:
+    return f"export {environment_key}={api_key}\n"
+
+
+def read_environment(path: Path, environment_key: str) -> str:
     try:
         text = path.read_text(encoding="utf-8")
     except FileNotFoundError as error:
         raise ProviderError(f"Provider environment not found: {path}") from error
-    prefix = f"export {DEEPSEEK_ENVIRONMENT_KEY}="
+    prefix = f"export {environment_key}="
     lines = text.splitlines()
     if len(lines) != 1 or not lines[0].startswith(prefix):
         raise ProviderError(f"Invalid provider environment: {path}")
-    return validate_deepseek_api_key(lines[0][len(prefix) :])
+    value = lines[0][len(prefix) :]
+    if environment_key == DEEPSEEK_ENVIRONMENT_KEY:
+        return validate_deepseek_api_key(value)
+    if environment_key == OPENROUTER_ENVIRONMENT_KEY:
+        return validate_openrouter_api_key(value)
+    raise ProviderError(f"Unsupported provider environment key: {environment_key}")
+
+
+def write_provider_install(
+    paths: Paths,
+    *,
+    provider: str,
+    profile_text: str,
+    environment_text: str,
+    configure: Callable[[str], str],
+    catalog_name: str | None = None,
+    catalog_text: str | None = None,
+) -> ProviderInstallResult:
+    profile = paths.codex_home / f"{provider}.config.toml"
+    environment = paths.provider_environment(provider)
+    catalog = paths.codex_home / catalog_name if catalog_name else None
+    with locked(paths):
+        paths.codex_home.mkdir(parents=True, exist_ok=True)
+        if not paths.config.exists():
+            atomic_write(paths.config, "")
+        ensure_initialized(paths)
+        config_text = paths.config.read_text(encoding="utf-8")
+        candidate = configure(config_text)
+        if catalog is not None and catalog_text is not None:
+            atomic_write(catalog, catalog_text)
+        atomic_write(profile, profile_text)
+        atomic_write(environment, environment_text)
+        atomic_write(paths.config, candidate)
+    return ProviderInstallResult(profile, catalog, environment)
 
 
 def install_deepseek(
@@ -174,21 +289,34 @@ def install_deepseek(
     source = setup_script if setup_script is not None else download_official_setup_script()
     catalog_text = extract_deepseek_catalog(source)
     profile_text = render_deepseek_profile(model)
-    environment_text = render_environment(value)
+    environment_text = render_environment(DEEPSEEK_ENVIRONMENT_KEY, value)
+    return write_provider_install(
+        paths,
+        provider=DEEPSEEK_PROFILE_NAME,
+        profile_text=profile_text,
+        environment_text=environment_text,
+        configure=lambda config: configure_deepseek_provider(
+            config, credential_command
+        ),
+        catalog_name=DEEPSEEK_CATALOG_NAME,
+        catalog_text=catalog_text,
+    )
 
-    profile = paths.codex_home / f"{DEEPSEEK_PROFILE_NAME}.config.toml"
-    catalog = paths.codex_home / DEEPSEEK_CATALOG_NAME
-    environment = paths.provider_environment(DEEPSEEK_PROFILE_NAME)
-    with locked(paths):
-        paths.codex_home.mkdir(parents=True, exist_ok=True)
-        if not paths.config.exists():
-            atomic_write(paths.config, "")
-        ensure_initialized(paths)
-        config_text = paths.config.read_text(encoding="utf-8")
-        candidate = configure_deepseek_provider(config_text, credential_command)
-        atomic_write(catalog, catalog_text)
-        atomic_write(profile, profile_text)
-        atomic_write(environment, environment_text)
-        atomic_write(paths.config, candidate)
 
-    return ProviderInstallResult(profile, catalog, environment)
+def install_openrouter(
+    paths: Paths,
+    api_key: str,
+    model: str = OPENROUTER_DEFAULT_MODEL,
+    *,
+    credential_command: str = "codex-provider",
+) -> ProviderInstallResult:
+    value = validate_openrouter_api_key(api_key)
+    return write_provider_install(
+        paths,
+        provider=OPENROUTER_PROFILE_NAME,
+        profile_text=render_openrouter_profile(model),
+        environment_text=render_environment(OPENROUTER_ENVIRONMENT_KEY, value),
+        configure=lambda config: configure_openrouter_provider(
+            config, credential_command
+        ),
+    )

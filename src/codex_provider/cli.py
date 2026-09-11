@@ -21,24 +21,31 @@ from .core import (
 )
 from .desktop import current_executable, default_app_path, install_desktop_app
 from .providers import (
+    DEEPSEEK_PROFILE_NAME,
+    OPENROUTER_DEFAULT_MODEL,
+    OPENROUTER_PROFILE_NAME,
     install_deepseek,
+    install_openrouter,
+    provider_display_name,
+    provider_environment_key,
     read_environment,
 )
 from .runner import run_codex
 
 
-def deepseek_api_key(paths: Paths) -> str:
-    existing = os.environ.get("DEEPSEEK_API_KEY")
+def provider_api_key(paths: Paths, provider: str) -> str:
+    environment_key = provider_environment_key(provider)
+    existing = os.environ.get(environment_key)
     if existing:
         return existing
-    stored = paths.provider_environment("deepseek")
+    stored = paths.provider_environment(provider)
     if stored.is_file():
-        return read_environment(stored)
+        return read_environment(stored, environment_key)
     try:
-        return getpass.getpass("DeepSeek API key: ")
+        return getpass.getpass(f"{provider_display_name(provider)} API key: ")
     except EOFError as error:
         raise ProviderError(
-            "No interactive terminal. Set DEEPSEEK_API_KEY and run the command again."
+            f"No interactive terminal. Set {environment_key} and run the command again."
         ) from error
 
 
@@ -62,12 +69,8 @@ def parser() -> argparse.ArgumentParser:
     use_parser.add_argument("profile")
 
     install_parser = subcommands.add_parser("install", help="install a provider configuration")
-    install_parser.add_argument("provider", choices=["deepseek"])
-    install_parser.add_argument(
-        "--model",
-        choices=["deepseek-flash", "deepseek-v4-pro"],
-        default="deepseek-flash",
-    )
+    install_parser.add_argument("provider", choices=["deepseek", "openrouter"])
+    install_parser.add_argument("--model")
 
     run_parser = subcommands.add_parser(
         "run", help="start Codex with temporary overrides from a selection profile"
@@ -76,7 +79,7 @@ def parser() -> argparse.ArgumentParser:
     run_parser.add_argument("codex_args", nargs=argparse.REMAINDER)
 
     credential_parser = subcommands.add_parser("credential", help=argparse.SUPPRESS)
-    credential_parser.add_argument("provider", choices=["deepseek"])
+    credential_parser.add_argument("provider", choices=["deepseek", "openrouter"])
 
     subcommands.add_parser("restore", help="restore the first captured selection")
     subcommands.add_parser("default", help="remove overrides and use Codex defaults")
@@ -112,21 +115,39 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Desktop provider selection: {args.profile}")
             print(f"Rollback snapshot: {snapshot}")
         elif args.command == "install":
-            result = install_deepseek(
-                paths,
-                deepseek_api_key(paths),
-                args.model,
-                credential_command=str(current_executable()),
-            )
-            print(f"Installed DeepSeek profile: {result.profile}")
-            print(f"Installed DeepSeek catalog: {result.catalog}")
+            credential_command = str(current_executable())
+            if args.provider == DEEPSEEK_PROFILE_NAME:
+                result = install_deepseek(
+                    paths,
+                    provider_api_key(paths, args.provider),
+                    args.model or "deepseek-flash",
+                    credential_command=credential_command,
+                )
+            elif args.provider == OPENROUTER_PROFILE_NAME:
+                result = install_openrouter(
+                    paths,
+                    provider_api_key(paths, args.provider),
+                    args.model or OPENROUTER_DEFAULT_MODEL,
+                    credential_command=credential_command,
+                )
+            else:  # pragma: no cover - argparse enforces the provider set
+                raise ProviderError(f"Unsupported provider: {args.provider}")
+            display_name = provider_display_name(args.provider)
+            print(f"Installed {display_name} profile: {result.profile}")
+            if result.catalog is not None:
+                print(f"Installed {display_name} catalog: {result.catalog}")
             print(f"Stored local environment: {result.environment}")
-            print("Desktop: codex-provider use deepseek")
-            print("CLI: codex-provider run deepseek")
+            print(f"Desktop: codex-provider use {args.provider}")
+            print(f"CLI: codex-provider run {args.provider}")
         elif args.command == "run":
             return run_codex(paths, args.profile, args.codex_args)
         elif args.command == "credential":
-            print(read_environment(paths.provider_environment(args.provider)))
+            print(
+                read_environment(
+                    paths.provider_environment(args.provider),
+                    provider_environment_key(args.provider),
+                )
+            )
         elif args.command == "restore":
             snapshot = restore_original(paths)
             print("Restored the original provider selection.")

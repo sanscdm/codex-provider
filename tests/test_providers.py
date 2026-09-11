@@ -10,7 +10,11 @@ from codex_provider.core import Paths, ProviderError
 from codex_provider.providers import (
     CATALOG_END,
     CATALOG_START,
+    DEEPSEEK_ENVIRONMENT_KEY,
+    OPENROUTER_DEFAULT_MODEL,
+    OPENROUTER_ENVIRONMENT_KEY,
     install_deepseek,
+    install_openrouter,
     read_environment,
     validate_deepseek_api_key,
     verify_official_setup_script,
@@ -124,7 +128,9 @@ class DeepSeekInstallerTestCase(unittest.TestCase):
             f"export DEEPSEEK_API_KEY={TEST_KEY}\n",
             encoding="utf-8",
         )
-        self.assertEqual(read_environment(environment), TEST_KEY)
+        self.assertEqual(
+            read_environment(environment, DEEPSEEK_ENVIRONMENT_KEY), TEST_KEY
+        )
 
     def test_key_validation_rejects_shell_syntax(self) -> None:
         with self.assertRaises(ProviderError):
@@ -133,6 +139,72 @@ class DeepSeekInstallerTestCase(unittest.TestCase):
     def test_changed_official_script_is_rejected(self) -> None:
         with self.assertRaisesRegex(ProviderError, "changed its setup script"):
             verify_official_setup_script(b"changed")
+
+
+class OpenRouterInstallerTestCase(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary = tempfile.TemporaryDirectory()
+        root = Path(self.temporary.name)
+        self.paths = Paths(root / ".codex", root / ".codex-provider")
+        self.paths.codex_home.mkdir()
+        self.paths.config.write_text(
+            'model = "gpt-6-astra"\n\n'
+            '[mcp_servers.example]\nurl = "https://example.invalid"\n',
+            encoding="utf-8",
+        )
+
+    def tearDown(self) -> None:
+        self.temporary.cleanup()
+
+    def test_install_writes_selection_and_command_auth_without_catalog(self) -> None:
+        key = "sk-or-v1-testvalue123456"
+        result = install_openrouter(
+            self.paths,
+            key,
+            "anthropic/claude-sonnet-4.5",
+            credential_command="/opt/bin/codex-provider",
+        )
+
+        config = self.paths.config.read_text(encoding="utf-8")
+        profile = result.profile.read_text(encoding="utf-8")
+        environment = result.environment.read_text(encoding="utf-8")
+
+        self.assertIsNone(result.catalog)
+        self.assertIn("[model_providers.openrouter]", config)
+        self.assertIn('base_url = "https://openrouter.ai/api/v1"', config)
+        self.assertIn("[model_providers.openrouter.auth]", config)
+        self.assertIn('command = "/opt/bin/codex-provider"', config)
+        self.assertIn('args = ["credential", "openrouter"]', config)
+        self.assertIn("[mcp_servers.example]", config)
+        self.assertIn('model = "anthropic/claude-sonnet-4.5"', profile)
+        self.assertIn('model_provider = "openrouter"', profile)
+        self.assertNotIn("model_catalog_json", profile)
+        self.assertEqual(environment, f"export OPENROUTER_API_KEY={key}\n")
+        self.assertEqual(stat.S_IMODE(result.environment.stat().st_mode), 0o600)
+        for public_text in (config, profile):
+            self.assertNotIn(key, public_text)
+
+    def test_default_model_uses_official_openrouter_alias(self) -> None:
+        result = install_openrouter(
+            self.paths,
+            "sk-or-v1-testvalue123456",
+            credential_command="/opt/bin/codex-provider",
+        )
+        profile = result.profile.read_text(encoding="utf-8")
+        self.assertIn(f'model = "{OPENROUTER_DEFAULT_MODEL}"', profile)
+
+    def test_invalid_key_and_model_stop_before_write(self) -> None:
+        before = self.paths.config.read_text(encoding="utf-8")
+        with self.assertRaisesRegex(ProviderError, "must start with sk-or-"):
+            install_openrouter(self.paths, "sk-not-openrouter")
+        with self.assertRaisesRegex(ProviderError, "without spaces"):
+            install_openrouter(
+                self.paths,
+                "sk-or-v1-testvalue123456",
+                "anthropic/not a model",
+            )
+        self.assertEqual(self.paths.config.read_text(encoding="utf-8"), before)
+        self.assertFalse(self.paths.data_home.exists())
 
 
 if __name__ == "__main__":

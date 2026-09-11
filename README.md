@@ -37,41 +37,41 @@ pipx install . --force
 
 ## Quick start
 
-Install DeepSeek end to end:
+Install OpenRouter end to end:
 
 ```bash
-codex-provider install deepseek
+codex-provider install openrouter
 ```
 
-The command uses `DEEPSEEK_API_KEY` when it is already present, then checks the existing local provider environment. Otherwise, it asks for the API key without echoing it. It downloads the pinned official DeepSeek catalog, installs the selection profile, adds the provider definition, captures the original selection, and stores the key only in `~/.codex-provider/providers/deepseek.env` with mode `0600`. This is a plaintext local environment file. Do not share or commit it.
+The command uses `OPENROUTER_API_KEY` when it is already present, then checks the existing local provider environment. Otherwise, it asks for the API key without echoing it. It installs the selection profile, adds the provider definition, captures the original selection, and stores the key only in `~/.codex-provider/providers/openrouter.env` with mode `0600`. This is a plaintext local environment file. Do not share or commit it.
 
-The provider uses Codex command-backed authentication. Codex asks `codex-provider` for the stored credential when it starts a DeepSeek request. The key does not need to be exported into the terminal or macOS login environment.
+Providers installed by this tool use Codex command-backed authentication. Codex asks `codex-provider` for the stored credential when it starts a request. The key does not need to be exported into the terminal or macOS login environment.
 
 Apply it to new desktop tasks:
 
 ```bash
-codex-provider use deepseek
+codex-provider use openrouter
 ```
 
 Fully quit and reopen Codex. For the CLI, run:
 
 ```bash
-codex-provider run deepseek
+codex-provider run openrouter
 ```
 
 `run` reads only the selection values from the profile and passes them as temporary Codex configuration overrides. It does not select the profile file as Codex's writable permission layer. Pass Codex arguments after `--`, for example:
 
 ```bash
-codex-provider run deepseek -- --ephemeral
+codex-provider run openrouter -- --ephemeral
 ```
 
-After `use deepseek`, the base configuration selects DeepSeek. Command-backed authentication lets the native CLI resume without sourcing an environment file:
+After `use openrouter`, the base configuration selects OpenRouter. Command-backed authentication lets the native CLI resume without sourcing an environment file:
 
 ```bash
 codex resume
 ```
 
-Do not run `codex --profile deepseek`. Codex can save tool approval changes into the selected profile file. A provider selection profile must stay selection-only. Use `codex-provider run deepseek` or apply it with `codex-provider use deepseek` and then run `codex` normally.
+Do not run `codex --profile openrouter`. Codex can save tool approval changes into the selected profile file. A provider selection profile must stay selection-only. Use `codex-provider run openrouter` or apply it with `codex-provider use openrouter` and then run `codex` normally.
 
 For a provider that you configure manually:
 
@@ -167,6 +167,31 @@ Desktop selection:
 codex-provider use deepseek
 ```
 
+## Example: OpenRouter
+
+The default model is OpenRouter's `~openai/gpt-latest` alias:
+
+```bash
+codex-provider install openrouter
+codex-provider use openrouter
+```
+
+Choose an exact OpenRouter model slug during installation when you need a fixed model:
+
+```bash
+codex-provider install openrouter --model openai/gpt-5.6-sol
+```
+
+OpenRouter provides model metadata to Codex after command-backed authentication. The installer does not create a local model catalog. This avoids a stale second copy of OpenRouter's changing model list.
+
+CLI without changing the desktop selection:
+
+```bash
+codex-provider run openrouter
+```
+
+After a desktop switch, fully quit and reopen Codex. Existing tasks keep the provider that they started with.
+
 ## Example: Amazon Bedrock
 
 Use AWS SSO or another standard AWS credential source. Add the Bedrock AWS settings from [`examples/base-config.toml`](examples/base-config.toml) to the base Codex config.
@@ -217,6 +242,7 @@ This reads only the managed selection values from that file. It does not copy it
 ```text
 codex-provider init [--original-config FILE]
 codex-provider install deepseek [--model MODEL]
+codex-provider install openrouter [--model MODEL]
 codex-provider run PROFILE [-- CODEX_ARGS...]
 codex-provider list
 codex-provider status
@@ -236,7 +262,7 @@ codex-provider desktop-install
 - Snapshots contain only provider selection values.
 - Invalid TOML stops the switch before the Codex config changes.
 - No credential, token, API key, or complete Codex configuration is copied.
-- DeepSeek keys are written only to a local mode-`0600` environment file.
+- Provider keys are written only to local mode-`0600` environment files.
 - DeepSeek catalog downloads use HTTPS, an allowed host, a size limit, a pinned checksum, strict JSON parsing, and an exact model allowlist.
 
 ## Development

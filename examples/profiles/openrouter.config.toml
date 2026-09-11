@@ -1,0 +1,4 @@
+model = "~openai/gpt-latest"
+model_provider = "openrouter"
+model_reasoning_effort = "high"
+web_search = "disabled"

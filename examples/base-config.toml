@@ -10,6 +10,15 @@ wire_api = "responses"
 command = "codex-provider"
 args = ["credential", "deepseek"]
 
+[model_providers.openrouter]
+name = "OpenRouter"
+base_url = "https://openrouter.ai/api/v1"
+wire_api = "responses"
+
+[model_providers.openrouter.auth]
+command = "codex-provider"
+args = ["credential", "openrouter"]
+
 [model_providers.amazon-bedrock.aws]
 profile = "codex-bedrock"
 region = "us-east-2"

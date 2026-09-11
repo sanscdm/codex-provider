@@ -70,6 +70,40 @@ class RunnerTestCase(unittest.TestCase):
             with self.assertRaisesRegex(ProviderError, "Codex CLI not found"):
                 run_codex(self.paths, "deepseek")
 
+    def test_openrouter_run_uses_selection_without_a_local_catalog(self) -> None:
+        self.paths.config.write_text(
+            '[model_providers.openrouter]\nbase_url = "https://openrouter.ai/api/v1"\n',
+            encoding="utf-8",
+        )
+        (self.paths.codex_home / "openrouter.config.toml").write_text(
+            'model = "~openai/gpt-latest"\n'
+            'model_provider = "openrouter"\n'
+            'model_reasoning_effort = "high"\n',
+            encoding="utf-8",
+        )
+        completed = type("Completed", (), {"returncode": 0})()
+        with patch("codex_provider.runner.subprocess.run", return_value=completed) as run:
+            exit_code = run_codex(
+                self.paths,
+                "openrouter",
+                executable=Path("/opt/codex/bin/codex"),
+            )
+
+        self.assertEqual(exit_code, 0)
+        self.assertEqual(
+            run.call_args.args[0],
+            [
+                "/opt/codex/bin/codex",
+                "-c",
+                'model="~openai/gpt-latest"',
+                "-c",
+                'model_provider="openrouter"',
+                "-c",
+                'model_reasoning_effort="high"',
+            ],
+        )
+        self.assertNotIn("model_catalog_json", " ".join(run.call_args.args[0]))
+
     def test_missing_profile_stops_before_launch(self) -> None:
         with self.assertRaisesRegex(ProviderError, "profile not found"):
             run_codex(
