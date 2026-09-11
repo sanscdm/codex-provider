@@ -1,0 +1,12 @@
+# Merge only the provider blocks you use into ~/.codex/config.toml.
+# Keep credentials outside this file.
+
+[model_providers.deepseek]
+name = "DeepSeek"
+base_url = "https://api.deepseek.com/"
+wire_api = "responses"
+env_key = "DEEPSEEK_API_KEY"
+
+[model_providers.amazon-bedrock.aws]
+profile = "codex-bedrock"
+region = "us-east-2"
