@@ -82,6 +82,17 @@ class Paths:
     def lock(self) -> Path:
         return self.data_home / "switch.lock"
 
+    @property
+    def provider_environments(self) -> Path:
+        return self.data_home / "providers"
+
+    def provider_environment(self, name: str) -> Path:
+        if not PROFILE_NAME.fullmatch(name):
+            raise ProviderError(
+                "Provider names must use only letters, numbers, hyphens, and underscores"
+            )
+        return self.provider_environments / f"{name}.env"
+
 
 def parse_toml(text: str, source: str) -> dict[str, Any]:
     try:

@@ -36,6 +36,31 @@ pipx install . --force
 
 ## Quick start
 
+Install DeepSeek end to end:
+
+```bash
+codex-provider install deepseek
+```
+
+The command uses `DEEPSEEK_API_KEY` when it is already present. Otherwise, it asks for the API key without echoing it. It downloads the pinned official DeepSeek catalog, installs the native profile, adds the provider definition, captures the original selection, and stores the key only in `~/.codex-provider/providers/deepseek.env` with mode `0600`. This is a plaintext local environment file. Do not share or commit it.
+
+Apply it to new desktop tasks:
+
+```bash
+codex-provider use deepseek
+```
+
+Fully quit and reopen Codex. For the native CLI, load the same local environment first:
+
+```bash
+source ~/.codex-provider/providers/deepseek.env
+codex --profile deepseek
+```
+
+On macOS, `use deepseek` publishes the variable to the current login session so the restarted desktop app can read it. Switching to another profile, restoring the original selection, or using defaults clears it from the login session.
+
+For a provider that you configure manually:
+
 1. Put custom provider definitions in `~/.codex/config.toml`.
 2. Put each native profile in `~/.codex/<name>.config.toml`.
 3. Capture your current provider selection once:
@@ -98,9 +123,15 @@ Provider definitions remain in the base config. This lets the tool switch select
 
 ## Example: DeepSeek
 
-DeepSeek also needs a model catalog because its model is not in the standard Codex catalog. Follow the [official DeepSeek Codex guide](https://api-docs.deepseek.com/quick_start/agent_integrations/codex/) once and save its current catalog as `~/.codex/deepseek.models.json`.
+DeepSeek needs a model catalog because its models are not in the standard Codex catalog. The installer extracts that catalog from DeepSeek's official setup script after verifying the script's pinned SHA-256 checksum. It does not execute the downloaded script.
 
-Add the provider definition from [`examples/base-config.toml`](examples/base-config.toml) to `~/.codex/config.toml`. Set `DEEPSEEK_API_KEY` only in your shell or local Codex environment. Never put it in a profile or this repository.
+Choose DeepSeek V4 Pro during installation:
+
+```bash
+codex-provider install deepseek --model deepseek-v4-pro
+```
+
+For manual setup, add the provider definition from [`examples/base-config.toml`](examples/base-config.toml) to `~/.codex/config.toml`. Set `DEEPSEEK_API_KEY` only in your shell or local Codex environment. Never put it in a profile or this repository.
 
 Copy the example profile:
 
@@ -108,7 +139,7 @@ Copy the example profile:
 cp examples/profiles/deepseek.config.toml ~/.codex/deepseek.config.toml
 ```
 
-The example uses `./deepseek.models.json`. Codex resolves this relative path from the user configuration directory. The catalog is intentionally not copied into this repository because DeepSeek owns and can update its model metadata.
+The example uses `./deepseek.models.json`. Codex resolves this relative path from the user configuration directory. The catalog is generated on the local machine and is not committed.
 
 Native CLI:
 
@@ -171,6 +202,7 @@ This reads only the managed selection values from that file. It does not copy it
 
 ```text
 codex-provider init [--original-config FILE]
+codex-provider install deepseek [--model MODEL]
 codex-provider list
 codex-provider status
 codex-provider use PROFILE
@@ -189,6 +221,8 @@ codex-provider desktop-install
 - Snapshots contain only provider selection values.
 - Invalid TOML stops the switch before the Codex config changes.
 - No credential, token, API key, or complete Codex configuration is copied.
+- DeepSeek keys are written only to a local mode-`0600` environment file.
+- DeepSeek catalog downloads use HTTPS, an allowed host, a size limit, a pinned checksum, strict JSON parsing, and an exact model allowlist.
 
 ## Development
 
